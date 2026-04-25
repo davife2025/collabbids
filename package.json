@@ -1,0 +1,16 @@
+{
+  "name": "collabbids",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CollabBids monorepo (web + api + shared).",
+  "scripts": {
+    "dev": "npm -w @collabbids/api run dev & npm -w @collabbids/web run dev",
+    "build": "npm -w @collabbids/shared run build && npm -w @collabbids/api run build && npm -w @collabbids/web run build",
+    "lint": "npm -w @collabbids/web run lint"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "license": "ISC"
+}

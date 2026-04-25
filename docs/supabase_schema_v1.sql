@@ -91,11 +91,15 @@ create table if not exists public.auctions (
   starting_bid_cents integer not null check (starting_bid_cents >= 0),
   reserve_price_cents integer check (reserve_price_cents is null or reserve_price_cents >= 0),
   ends_at timestamptz not null,
+  extended_count integer not null default 0,
   status text not null default 'active' check (status in ('draft','active','ended')),
   is_creator_approved_at_creation boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Safe add column for existing projects
+alter table public.auctions add column if not exists extended_count integer not null default 0;
 
 drop trigger if exists trg_auctions_updated_at on public.auctions;
 create trigger trg_auctions_updated_at
@@ -122,6 +126,66 @@ on public.auctions for update
 to authenticated
 using (auth.uid() = creator_id)
 with check (auth.uid() = creator_id);
+
+-- Orders + shipping (winner fulfillment)
+create table if not exists public.orders (
+  id uuid primary key default gen_random_uuid(),
+  auction_id uuid not null unique references public.auctions(id) on delete cascade,
+  winner_id uuid not null references public.profiles(id) on delete cascade,
+  amount_cents integer not null check (amount_cents >= 0),
+  status text not null default 'pending_shipping'
+    check (status in ('pending_shipping','submitted_shipping','paid','shipped','completed')),
+  created_at timestamptz not null default now()
+);
+
+alter table public.orders enable row level security;
+
+drop policy if exists "orders_winner_read" on public.orders;
+create policy "orders_winner_read"
+on public.orders for select
+to authenticated
+using (auth.uid() = winner_id);
+
+drop policy if exists "orders_no_client_write" on public.orders;
+create policy "orders_no_client_write"
+on public.orders for insert, update, delete
+to authenticated
+using (false)
+with check (false);
+
+create table if not exists public.shipping_addresses (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null unique references public.orders(id) on delete cascade,
+  name text not null,
+  phone text,
+  address1 text not null,
+  address2 text,
+  city text not null,
+  state text,
+  postal_code text not null,
+  country text not null default 'US',
+  created_at timestamptz not null default now()
+);
+
+alter table public.shipping_addresses enable row level security;
+
+drop policy if exists "shipping_winner_read" on public.shipping_addresses;
+create policy "shipping_winner_read"
+on public.shipping_addresses for select
+to authenticated
+using (
+  exists (
+    select 1 from public.orders o
+    where o.id = order_id and o.winner_id = auth.uid()
+  )
+);
+
+drop policy if exists "shipping_no_client_write" on public.shipping_addresses;
+create policy "shipping_no_client_write"
+on public.shipping_addresses for insert, update, delete
+to authenticated
+using (false)
+with check (false);
 
 -- Bids
 create table if not exists public.bids (

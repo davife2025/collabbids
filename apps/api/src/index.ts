@@ -16,6 +16,8 @@ import {
 } from "./db";
 import { createSupabaseAdminClient } from "./supabase";
 import { z } from "zod";
+import Stripe from "stripe";
+import { generateAuctionDescription } from "./ai";
 
 const PORT = Number(process.env.PORT ?? 4000);
 
@@ -245,6 +247,62 @@ app.post("/api/v1/auctions", requireUser, async (req, res) => {
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : "create_auction_error" });
   }
+});
+
+app.post("/api/v1/ai/auction-description", requireUser, async (req, res) => {
+  const schema = z.object({
+    title: z.string().min(3).max(120),
+    bullets: z.array(z.string().min(1).max(200)).min(1).max(8),
+    tone: z.enum(["minimal", "friendly", "luxury"]).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "invalid_body", issues: parsed.error.issues });
+    return;
+  }
+  try {
+    const text = await generateAuctionDescription(parsed.data);
+    res.json({ description: text });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : "ai_error" });
+  }
+});
+
+app.post("/api/v1/wallet/stripe/checkout", requireUser, async (req, res) => {
+  const schema = z.object({ amount_cents: z.number().int().min(100).max(200000) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "invalid_body", issues: parsed.error.issues });
+    return;
+  }
+
+  const key = process.env.STRIPE_SECRET_KEY;
+  const webBase = process.env.WEB_BASE_URL ?? "http://localhost:3000";
+  if (!key) {
+    res.status(500).json({ error: "missing_stripe_secret" });
+    return;
+  }
+  const stripe = new Stripe(key, { apiVersion: "2025-02-24.acacia" as any });
+
+  const r = req as AuthedRequest;
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    success_url: `${webBase}/profile?topup=success&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${webBase}/profile?topup=cancel`,
+    client_reference_id: r.userId,
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: "usd",
+          unit_amount: parsed.data.amount_cents,
+          product_data: { name: "CollabBids wallet top-up (demo)" },
+        },
+      },
+    ],
+  });
+
+  res.json({ url: session.url });
 });
 
 app.get("/api/v1/admin/creator-requests", requireUser, async (req, res) => {

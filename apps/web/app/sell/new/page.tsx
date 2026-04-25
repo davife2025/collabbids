@@ -15,11 +15,13 @@ export default function NewAuctionPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [bullets, setBullets] = useState<string>("Signed print\nShips in 3-5 days\nLimited drop");
   const [startingBid, setStartingBid] = useState("10");
   const [reserve, setReserve] = useState("");
   const [endsAt, setEndsAt] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
 
   useEffect(() => {
     apiFetch<Profile>("/profile")
@@ -52,6 +54,28 @@ export default function NewAuctionPage() {
       setError(e instanceof Error ? e.message : "Create failed.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function generateDescription() {
+    setAiBusy(true);
+    setError("");
+    try {
+      const bulletList = bullets
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 8);
+
+      const res = await apiFetch<{ description: string }>("/ai/auction-description", {
+        method: "POST",
+        body: JSON.stringify({ title, bullets: bulletList, tone: "minimal" }),
+      });
+      setDescription(res.description);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "AI failed.");
+    } finally {
+      setAiBusy(false);
     }
   }
 
@@ -91,6 +115,24 @@ export default function NewAuctionPage() {
               className="mt-2 min-h-28 w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
               placeholder="Add details about the print/craft, shipping timeline, what's included…"
             />
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-medium text-zinc-600">AI bullets (for description)</span>
+            <textarea
+              value={bullets}
+              onChange={(e) => setBullets(e.target.value)}
+              className="mt-2 min-h-24 w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
+              placeholder={"Signed print\nShips in 3-5 days\nLimited drop"}
+            />
+            <button
+              type="button"
+              onClick={generateDescription}
+              disabled={aiBusy || !title}
+              className="mt-3 rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {aiBusy ? "Generating…" : "Generate description with AI (Kimi K2.5)"}
+            </button>
           </label>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
